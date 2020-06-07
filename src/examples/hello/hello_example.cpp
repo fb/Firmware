@@ -44,19 +44,47 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include <poll.h> // POLLIN
+#include <matrix/math.hpp>
+#include <uORB/uORB.h>
+#include <uORB/topics/vehicle_attitude.h>
+
 px4::AppState HelloExample::appState;
 
 int HelloExample::main()
 {
 	appState.setRunning(true);
 
-	int i = 0;
+    struct vehicle_attitude_s attitude;
 
-	while (!appState.exitRequested() && i < 5) {
-		px4_sleep(2);
+	/* subscribe to parameter changes */
+	int sub_fd = orb_subscribe(ORB_ID(vehicle_attitude));
+	orb_set_interval(sub_fd, 200);
 
-		printf("  Doing work...\n");
-		++i;
+    struct pollfd fds[] = {
+        { .fd = sub_fd, .events = POLLIN }
+    };
+
+	while (!appState.exitRequested()) {
+		int ret = poll(fds, 1, 500);
+
+		if (ret < 0) {
+			/* poll error, ignore */
+
+		} else if (ret == 0) {
+			/* no return value, ignore */
+			// warnx("no sensor data");
+
+		} else {
+			if (fds[0].revents & POLLIN) {
+				orb_copy(ORB_ID(vehicle_attitude), sub_fd, &attitude);
+
+                matrix::Eulerf euler = matrix::Quatf(attitude.q);
+
+				// write out on accel 0, but collect for all other sensors as they have updates
+				printf("%llu,%1.1f,%1.1f,%1.1f\n", attitude.timestamp, (double)euler.phi(), (double)euler.psi(), (double)euler.theta());
+			}
+		}
 	}
 
 	return 0;
